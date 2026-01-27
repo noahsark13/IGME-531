@@ -233,7 +233,7 @@ Shader "Custom/NewUnlitUniversalRenderPipelineShader"
                 return p + q * _Distortion + r * _Distortion * 0.5;
             }
             
-            // Generate flesh components (returns: cells, noise, wrinkles, combined)
+            // Generate flesh components
             float4 generateFleshComponents(float3 warpedPos)
             {
                 // Voronoi cells for muscle fiber look
@@ -466,7 +466,7 @@ Shader "Custom/NewUnlitUniversalRenderPipelineShader"
                 // Calculate shadow coordinates
                 output.shadowCoord = GetShadowCoord(vertexInput);
                 
-                // Handle lightmap or SH (spherical harmonics for ambient)
+                // Handle lightmap or SH
                 OUTPUT_LIGHTMAP_UV(input.lightmapUV, unity_LightmapST, output.lightmapUV);
                 OUTPUT_SH(output.normalWS.xyz, output.vertexSH);
                 
