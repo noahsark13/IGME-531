@@ -42,11 +42,10 @@
 
     // helper method to ease with color gradient
     const getColor = (progress) => {
-
-      // start with warm off-white, gradually darken to warm gray
-      const r = Math.floor(245 - progress * 95); // 245 → 150
-      const g = Math.floor(242 - progress * 92); // 242 → 150
-      const b = Math.floor(235 - progress * 85); // 235 → 150
+      
+      const r = Math.floor(245 - progress * 95); 
+      const g = Math.floor(242 - progress * 92); 
+      const b = Math.floor(235 - progress * 85); 
       return `rgb(${r}, ${g}, ${b})`;
     };
 
