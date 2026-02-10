@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crumbling Monuments</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: #000000; 
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+    }
+
+    svg {
+      background: #0a0a0a; 
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.9);
+    }
+  </style>
+</head>
+
+<body>
+  <svg width="600px" height="800px"></svg>
+
+  <script type="module">
+    import { createNoise2D } from 'https://cdn.skypack.dev/simplex-noise@4.0.3';
+    const noise2D = createNoise2D();
+
+    const width = 600,
+      height = 800;
+
+    const maxTranslation = 15,
+      maxRotation = 15;
+
+    const svg = document.querySelector('svg');
+
+    // helper method to ease with color gradient
+    const getColor = (progress) => {
+
+      // start with warm off-white, gradually darken to warm gray
+      const r = Math.floor(245 - progress * 95); // 245 → 150
+      const g = Math.floor(242 - progress * 92); // 242 → 150
+      const b = Math.floor(235 - progress * 85); // 235 → 150
+      return `rgb(${r}, ${g}, ${b})`;
+    };
+
+    const rect = (x, y, width, height, rotation = 0, color = 'black') => {
+      const originX = x + width / 2;
+      const originY = y + height / 2;
+      return `<rect x="${x}" y="${y}" 
+                    width="${width}" height="${height}" 
+                    fill="none" stroke="${color}" stroke-width="1px" 
+                    transform="rotate(${rotation} ${originX} ${originY})"/>`;
+    };
+
+    const makeRingSquare = (x, y, squareSize, shakiness, noiseX, noiseY, chaosProgress, verticalProgress) => {
+
+      const maxRings = 5;
+      const minRings = 1;
+
+      const numRings = Math.floor(maxRings - (verticalProgress * (maxRings - minRings)));
+      
+      // Calculate base transformations for the entire tile
+      const xChange = (Math.random() * 2 - 1) * shakiness * maxTranslation;
+      const yChange = (Math.random() * 2 - 1) * shakiness * maxRotation;
+      const baseRotation = (Math.random() * 2 - 1) * shakiness * maxRotation;
+      
+      // Get color based on chaos
+      const color = getColor(chaosProgress);
+      
+      let rings = '';
+      const spacing = squareSize / (numRings * 2 + 2);
+      
+      for (let i = 0; i < numRings; i++) {
+
+        const ringSize = squareSize - (spacing * 2 * (i + 1));
+        const ringX = x + spacing * (i + 1);
+        const ringY = y + spacing * (i + 1);
+        
+        // Each ring gets rotation and chaos
+        const ringNoise = noise2D(noiseX * 10, noiseY * 10 + i) * shakiness * 3;
+        const ringRotation = baseRotation + ringNoise;
+        
+        const innerShake = shakiness * (i / numRings) * 0.5;
+        const ringXShift = (Math.random() * 2 - 1) * innerShake * maxTranslation * 0.3;
+        const ringYShift = (Math.random() * 2 - 1) * innerShake * maxRotation * 0.3;
+        
+        rings += rect(
+          ringX + xChange + ringXShift, 
+          ringY + yChange + ringYShift, 
+          ringSize, 
+          ringSize, 
+          ringRotation,
+          color
+        );
+      }
+      
+      return rings;
+    };
+
+    const makeGridOfSquares = (squareSize, numRows, numCols) => {
+
+      let squareData = [];
+      for (let i = 0; i < numCols; i++) {
+        let col = [];
+        
+        const noiseScale1 = 0.15; 
+        const noiseScale2 = 0.4;  
+        
+        const noise1 = noise2D(i * noiseScale1, 0);
+        const noise2 = noise2D(i * noiseScale2, 100);
+        
+        // Combine noise values (range -1 to 1)
+        const combinedNoise = (noise1 * 0.7) + (noise2 * 0.3);
+        
+        // Calculate y offset for the column
+        const maxYOffset = 100;
+        const columnYOffset = combinedNoise * maxYOffset;
+        
+        for (let j = 0; j < numRows; j++) {
+
+          const shakiness = Math.pow(j / (numRows - 1), 3);
+          const chaosProgress = shakiness;
+          
+          col.push({
+            x: i * squareSize,
+            y: j * squareSize + columnYOffset, // Apply column offset to y position
+            shakiness: shakiness,
+            size: squareSize, // All squares same size
+            chaosProgress: chaosProgress,
+            noiseX: i * 0.1,
+            noiseY: j * 0.1,
+            verticalProgress: j / numRows // For ring count calculation
+          });
+        }
+        squareData.push(col);
+      }
+      
+      let gridText = '';
+
+      for (let i = 0; i < numCols; i++) {
+
+        for (let j = 0; j < numRows; j++) {
+
+          const data = squareData[i][j];
+
+          gridText += makeRingSquare(
+            data.x, 
+            data.y, 
+            data.size, 
+            data.shakiness, 
+            data.noiseX, 
+            data.noiseY, 
+            data.chaosProgress,
+            data.verticalProgress
+
+          );
+        }
+      }
+
+      return gridText;
+    };
+
+    let svgText = '';
+
+    const numCols = 24,
+      numRows = 22,
+      squareSize = 20;
+    const gridWidth = squareSize * numCols,
+      gridHeight = squareSize * numRows;
+
+    const gridCenterX = gridWidth / 2,
+      gridCenterY = gridHeight / 2;
+
+    const svgCenterX = width / 2,
+      svgCenterY = height / 2;
+
+    let squareGridText = makeGridOfSquares(squareSize, numRows, numCols);
+
+    let transformedGrid = `
+      <g transform="translate(${svgCenterX - gridCenterX} ${svgCenterY - gridCenterY})">
+        ${squareGridText}
+      </g>
+    `.trim();
+
+    svgText += transformedGrid;
+
+    svg.innerHTML = svgText;
+
+  </script>
+</body>
+
+</html>
