@@ -3,32 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Interruptions — after Vera Molnar</title>
+  <title>Interruptions</title>
   <style>
+
     html, body { margin: 0; height: 100%; }
     body { display: grid; place-items: center; background: #e8e8e0; }
-    svg { max-width: 500px; max-height: 90vh; background: white; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+    svg { width: min(90vh, 90vw); height: min(90vh, 90vw); background: white; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+
   </style>
 </head>
 <body>
-  <svg width="210mm" height="297mm" viewBox="0 0 210 297"></svg>
+  <svg width="600" height="600" viewBox="0 0 500 500"></svg>
   <script>
-    const width = 210, height = 297;
 
-    // Randomize grid density each load: 4-8mm cell size
-    const tileSize = Math.random() * 4 + 4;
+    const width = 500, height = 500;
+    const tileSize = Math.random() * 9 + 10;
     const lineLength = tileSize * (Math.random() * 0.6 + 1.2);
-    const strokeWidth = 0.6;
 
-    const cols = Math.floor(width / tileSize);
-    const rows = Math.floor(height / tileSize);
+    const cols = Math.floor((width - 60) / tileSize);
+    const rows = Math.floor((height - 60) / tileSize);
 
-    // Voids defined in mm so shape stays square regardless of tileSize
+    // voids are just rectangles stored as plain data
+    // they dont draw anything themselves, they just describe where the gaps should be
     const numVoids = Math.floor(Math.random() * 8) + 8;
     const voids = [];
+
     for (let v = 0; v < numVoids; v++) {
-      const size = Math.random() * 20 + 8;        // 8-28mm base
-      const aspect = Math.random() * 0.6 + 0.7;   // 0.7-1.3 aspect ratio
+
+      const size = Math.random() * 50 + 20;
+      const aspect = Math.random() * 0.6 + 0.7;
+      
       voids.push({
         x: Math.random() * (width + 10) - 5,
         y: Math.random() * (height + 10) - 5,
@@ -38,48 +42,80 @@
     }
 
     const survivalChance = (col, row) => {
+
+      // get centerpoint of line
       const cx = col * tileSize + tileSize / 2;
       const cy = row * tileSize + tileSize / 2;
+
       let minDist = Infinity;
+
       for (const v of voids) {
+
+        // if the point is inside the void, remove it immediately
         if (cx >= v.x && cx <= v.x + v.w && cy >= v.y && cy <= v.y + v.h) return 0;
+
+        // shortest distance from the point to the nearest edge of the rectangle
         const dx = Math.max(v.x - cx, 0, cx - (v.x + v.w));
         const dy = Math.max(v.y - cy, 0, cy - (v.y + v.h));
         const dist = Math.sqrt(dx*dx + dy*dy);
+
         if (dist < minDist) minDist = dist;
       }
-      const halo = 12; // mm fade zone
-      if (minDist >= halo) return 1;
-      const t = minDist / halo;
+
+      const buffer = 30; 
+
+      // buffer zone for straggling lines outside the void
+      // if they are out of the zone, guarenteed draw
+      if (minDist >= buffer) return 1;
+
+      // calculates the distance within the buffer zone 0-12
+      const t = minDist / buffer;
+
+      //squaring to make position non-linear, for lower density near the void but higher at the buffer edge
+      // used as probability to draw line
       return t * t;
     };
 
     const makeLine = (col, row) => {
       const cx = col * tileSize + tileSize / 2;
       const cy = row * tileSize + tileSize / 2;
+
       const angle = Math.random() * Math.PI;
       const half = lineLength / 2;
       const dx = Math.cos(angle) * half;
       const dy = Math.sin(angle) * half;
-      return `<line x1="${(cx-dx).toFixed(3)}" y1="${(cy-dy).toFixed(3)}" x2="${(cx+dx).toFixed(3)}" y2="${(cy+dy).toFixed(3)}" stroke="#1a1a1a" stroke-width="${strokeWidth}" stroke-linecap="round"/>`;
+
+      // slight thickness variation makes it feel more hand-drawn like the references
+      const sw = (Math.random() * 0.7 + 0.9).toFixed(2);
+
+      return `<line x1="${(cx-dx).toFixed(3)}" y1="${(cy-dy).toFixed(3)}" x2="${(cx+dx).toFixed(3)}" y2="${(cy+dy).toFixed(3)}" stroke="#1a1a1a" stroke-width="${sw}" stroke-linecap="round"/>`;
     };
 
     const svg = document.querySelector('svg');
     let svgText = `<rect x="0" y="0" width="${width}" height="${height}" fill="none" stroke="#1a1a1a" stroke-width="0.4"/>`;
 
-    const offsetX = (width - cols * tileSize) / 2;
-    const offsetY = (height - rows * tileSize) / 2;
+    // center the grid on the page
+    const padding = 30;
+    const offsetX = padding + (width - padding * 2 - cols * tileSize) / 2;
+    const offsetY = padding + (height - padding * 2 - rows * tileSize) / 2;
 
     svgText += `<g transform="translate(${offsetX} ${offsetY})">`;
+
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
+
+        // survivalChance returns a probability that will be used with Math.Random to determine if the line will be drawn or not
         if (Math.random() < survivalChance(col, row)) {
           svgText += makeLine(col, row);
+
         }
+
       }
     }
+
     svgText += `</g>`;
     svg.innerHTML = svgText;
+    
   </script>
 </body>
 </html>
