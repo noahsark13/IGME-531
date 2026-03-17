@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Truchet Tiles</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      background: #f0f0f0;
+    }
+
+    svg {
+      max-width: 500px;
+      max-height: 90vh;
+      background: white;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    #download {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      padding: 0.3rem 1rem;
+      background: #222;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.5rem;
+      cursor: pointer;
+    }
+    #download:hover { background: #444; }
+  </style>
+</head>
+
+<body>
+  <svg width="210mm" height="297mm" viewBox="0 0 210 297"></svg>
+  <button id="download">Download SVG</button>
+
+  <script type="module">
+    import { createNoise2D } from 'https://cdn.skypack.dev/simplex-noise@4.0.3';
+
+    // A4 paper dimensions in mm
+    const width  = 210;
+    const height = 297;
+
+    const tileSize = 20; 
+    const linesPerTile = 10;  
+    const lineSpacing = tileSize / linesPerTile; 
+    const strokeWidth = 0.3; 
+
+    // Noise params
+    const noiseScale = 0.5;
+    const bendThreshold  = 0.2;  // controls more curvers or more straight tiles
+    const noise2D = createNoise2D();
+    const simplex = { noise2D };
+
+    const cols = Math.floor(width  / tileSize);   
+    const rows = Math.floor(height / tileSize);  
+
+    const gridWidth  = cols * tileSize;
+    const gridHeight = rows * tileSize;
+    const offsetX    = (width  - gridWidth)  / 2; 
+    const offsetY    = (height - gridHeight) / 2;
+
+    const svg = document.querySelector('svg');
+
+    const rect = (x, y, w, h) => 
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="black" stroke-width="${strokeWidth}"/>`;
+    
+    
+    const line = (x1, y1, x2, y2) => 
+    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="black" stroke-width="${strokeWidth}"/>`;
+    
+    
+    const arc = (x1, y1, rx, ry, sweep, x2, y2) => 
+    `<path d="M ${x1} ${y1} A ${rx} ${ry} 0 0 ${sweep} ${x2} ${y2}" fill="none" stroke="black" stroke-width="${strokeWidth}"/>`;
+    
+
+    const download = (svgEl, filename = 'truchet_tiles.svg') => {
+      const svgStr = new XMLSerializer().serializeToString(svgEl);
+      const url = URL.createObjectURL(new Blob([svgStr], { type: 'image/svg+xml' }));
+      const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Wraps inner SVG markup
+    const tileGroup = (x, y, rotation, cx, cy, inner) => 
+    `<g transform="translate(${x} ${y}) rotate(${rotation} ${cx} ${cy})">${inner}</g>`;
+    
+
+
+    // Tiles
+    const bendTile = (size) => {
+      const lineCount = Math.floor(size / lineSpacing);
+      let paths = '';
+
+      // First draw the main curve pattern
+      for (let k = 0; k <= lineCount; k++) {
+
+        const offset = k * lineSpacing;
+        const r = size - offset;
+        paths += arc(size, offset, r, r, 0, offset, size);
+      }
+
+      // Second curve drawn to appear flowing "underneath" the main curve.
+      // Math (I do not fully understand this): the two circles intersect where x+y = intersect = (r^2+size^2)/(2*size).
+      // This gives crossing angles theta1 = phi-45deg, theta2 = 135deg-phi
+      // where phi = arcsin(intersect / (r*sqrt2)). Only draw between those angles.
+      const criticalR = size * (Math.SQRT2 - 1);
+
+      for (let k = 0; k <= lineCount; k++) {
+
+        const offset = k * lineSpacing;
+        const r = size - offset;
+
+        // Entirely inside boundary, draw
+        if (r <= criticalR) {
+          paths += arc(0, r.toFixed(4), r, r, 0, r.toFixed(4), 0);
+          continue;
+        }
+
+        const intersect = (r * r + size * size) / (2 * size);
+        const sinV = intersect / (r * Math.SQRT2);
+        if (sinV >= 1) continue;
+
+        const phi    = Math.asin(sinV);
+        const theta1 = phi - Math.PI / 4;       // lower crossing angle
+        const theta2 = (3 * Math.PI) / 4 - phi; // upper crossing angle
+
+        const x1 = (r * Math.cos(theta1)).toFixed(4);
+        const y1 = (r * Math.sin(theta1)).toFixed(4);
+        const x2 = (r * Math.cos(theta2)).toFixed(4);
+        const y2 = (r * Math.sin(theta2)).toFixed(4);
+
+        paths += arc(0, r.toFixed(4), r, r, 0, x2, y2);
+        paths += arc(x1, y1, r, r, 0, r.toFixed(4), 0);      
+
+      }
+
+      return paths;
+    };
+
+    const straightTile = (size) => {
+      const lineCount = Math.floor(size / lineSpacing);
+      let paths = '';
+
+      for (let k = 0; k <= lineCount; k++) {
+        const x = k * lineSpacing;
+        paths += line(x, 0, x, size);
+      }
+
+      return paths;
+    };
+
+    const makeTruchetGrid = (cols, rows, size) => {
+      let gridText = '';
+
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+
+          const x = col * size;
+          const y = row * size;
+
+          // Remap noise to 0-1 for threshold comparison
+          const noiseVal = (simplex.noise2D(col * noiseScale, row * noiseScale) + 1) / 2;
+
+          // depending on the noise tile is either a bend or straight
+          if (noiseVal > bendThreshold) {
+
+            // only possible for 90 degree rotations
+            const rotation = Math.floor(Math.random() * 4) * 90;
+            gridText += tileGroup(x, y, rotation, tileSize / 2, tileSize / 2, bendTile(size));
+
+          } 
+          else 
+          {
+            const rotation = Math.random() < 0.5 ? 0 : 90;
+            gridText += tileGroup(x, y, rotation, tileSize / 2, tileSize / 2, straightTile(size));
+          }
+
+        }
+      }
+
+      return gridText;
+    };
+
+    let svgText = '';
+    svgText += rect(0, 0, width, height);
+
+    svgText += `
+      <g transform="translate(${offsetX} ${offsetY})">
+        ${makeTruchetGrid(cols, rows, tileSize)}
+      </g>`.trim();
+
+    svg.innerHTML = svgText;
+
+    document.getElementById('download').addEventListener('click', () => {
+      download(svg, 'truchet_tiles.svg');
+    });
+
+
+  </script>
+
+</body>
+</html>
