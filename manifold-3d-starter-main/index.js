@@ -23,7 +23,6 @@ function mosleySnowflake(level) {
   const sub = mosleySnowflake(level - 1);
 
   const copies = POSITIONS.map(([x, y, z]) => {
-    // Grid coords 0-2 → center at -1/3, 0, +1/3
     // Scale sub by 1/3, then offset to its grid position
     return sub
       .scale(1 / 3)
@@ -33,8 +32,6 @@ function mosleySnowflake(level) {
   return Manifold.union(copies);
 }
 
-// Level 3 = 18^3 = 5832 cubes — good detail/performance balance
-// Level 4 = 18^4 = ~105k cubes — slower but impressive
 const fractal = mosleySnowflake(3);
 
 show(fractal);
