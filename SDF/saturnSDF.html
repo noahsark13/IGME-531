@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retro SDF</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+  }
+
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  #c {
+    display: block;
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    cursor: grab;
+  }
+  #c:active { cursor: grabbing; }
+
+  #controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 8px 16px;
+    background: #000;
+    border-top: 1px solid rgba(255,255,255,0.2);
+    font-size: 10px;
+    color: #fff;
+    letter-spacing: 1px;
+    flex-wrap: wrap;
+  }
+
+  #controls label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: default;
+  }
+
+  #controls input[type=range] {
+    accent-color: #fff;
+    width: 80px;
+    cursor: pointer;
+  }
+
+  #controls select {
+    background: #000;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.35);
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    padding: 2px 4px;
+    cursor: pointer;
+    outline: none;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="controls">
+    <label>PIXEL
+      <input id="ps" type="range" min="3" max="16" value="7" step="1">
+      <span id="psv">7</span>
+    </label>
+    <label>PALETTE
+      <select id="pal">
+        <option value="0">AMBER</option>
+        <option value="1">PHOSPHOR</option>
+        <option value="2" selected>CGA</option>
+        <option value="3">GAMEBOY</option>
+        <option value="4">ZX SPECTRUM</option>
+        <option value="5">PC-98</option>
+        <option value="6">RADAR</option>
+        <option value="7">C64</option>
+      </select>
+    </label>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const canvas = document.getElementById('c');
+
+// Returns the canvas's current pixel dimensions
+function getCanvasSize() {
+  return { width: canvas.clientWidth, height: canvas.clientHeight };
+}
+
+let { width, height } = getCanvasSize();
+canvas.width = width;
+canvas.height = height;
+
+// Three.js renders the fullscreen quad that holds the shader
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setSize(width, height, false);
+
+// Camera rotation (radians)
+let rotationX = 0.3;
+let rotationY = 0.4;
+let cameraDistance = 6.0;
+
+// Drag state for mouse
+let isDragging = false;
+let prevMouseX = 0;
+let prevMouseY = 0;
+
+// Mouse drag to rotate
+canvas.addEventListener('mousedown', e => {
+  isDragging = true;
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+window.addEventListener('mouseup', () => { isDragging = false; });
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  rotationY += (e.clientX - prevMouseX) * 0.01;
+  rotationX += (e.clientY - prevMouseY) * 0.01;
+  rotationX = Math.max(-1.4, Math.min(1.4, rotationX)); // clamp to avoid flipping
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  cameraDistance = Math.max(3.0, Math.min(12.0, cameraDistance + e.deltaY * 0.01));
+}, { passive: false });
+
+
+// Values passed from JS into the GLSL shader each frame
+const shaderUniforms = {
+  resolution: { value: new THREE.Vector2(width, height) },
+  time:        { value: 0.0 },
+  pixelSize:   { value: 7.0 },
+  palette:     { value: 2.0 }, // default: CGA
+  rotationX:   { value: rotationX },
+  rotationY:   { value: rotationY },
+  cameraDistance: { value: cameraDistance }
+};
+
+// The shader material runs on the GPU, vertex shader positions the quad,
+// fragment shader does all the raymarching and coloring per pixel
+const shaderMaterial = new THREE.ShaderMaterial({
+  uniforms: shaderUniforms,
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position, 1.); }`,
+  fragmentShader: 
+  `precision mediump float;
+uniform vec2 resolution;
+uniform float time, pixelSize, palette, rotationX, rotationY, cameraDistance;
+varying vec2 vUv;
+
+// Random hash used for star field
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5); }
+
+// Rotate a point around the X or Y axis
+vec3 rotateX(vec3 p, float angle) { float c=cos(angle), s=sin(angle); return vec3(p.x, p.y*c - p.z*s, p.y*s + p.z*c); }
+vec3 rotateY(vec3 p, float angle) { float c=cos(angle), s=sin(angle); return vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c); }
+
+// SDF primitives return the signed distance from point p to the surface
+float sdSphere(vec3 p, float radius){ return length(p) - radius; }
+float sdTorus(vec3 p, float majorRadius, float minorRadius){ return length(vec2(length(p.xz) - majorRadius, p.y)) - minorRadius; }
+float sdFlatRing(vec3 p, float innerR, float outerR, float thickness) {
+  float radial = length(p.xz);
+  float ringBand = max(innerR - radial, radial - outerR);
+  float vertical = abs(p.y) - thickness;
+  return max(ringBand, vertical);
+}
+
+const float RING_TILT = -0.5;
+
+// Scene SDF combines planet and both rings, returns closest distance to any surface
+float sceneSDF(vec3 pos) {
+  vec3 rotatedPos = rotateY(rotateX(pos, rotationX), rotationY);
+  float planet = sdSphere(rotatedPos, 1.0);
+  vec3 ringPos = rotateX(rotatedPos, RING_TILT);
+
+  float innerRing = sdFlatRing(ringPos, 1.6, 1.85, 0.015);
+  float outerRing = sdFlatRing(ringPos, 2.05, 2.35, 0.01);
+
+  return min(planet, min(innerRing, outerRing));
+}
+
+// Returns which part was hit: 0=planet, 1=inner ring, 2=outer ring
+// Used by the palette to colour each part differently
+float hitPart(vec3 pos) {
+
+  vec3 rotatedPos = rotateY(rotateX(pos, rotationX), rotationY);
+  float planet = sdSphere(rotatedPos, 1.0);
+  vec3 ringPos = rotateX(rotatedPos, RING_TILT);
+  float innerRing = sdFlatRing(ringPos, 1.6, 1.85, 0.015);
+  float outerRing = sdFlatRing(ringPos, 2.05, 2.35, 0.01);
+  float closest = min(planet, min(innerRing, outerRing));
+
+  if(abs(closest - planet) < 0.001) return 0.;
+  if(abs(closest - innerRing) < 0.001) return 1.;
+  return 2.;
+}
+
+vec3 getSurfaceNormal(vec3 pos){
+  float epsilon = 0.001;
+  return normalize(vec3(
+
+    sceneSDF(pos + vec3(epsilon,0,0)) - sceneSDF(pos - vec3(epsilon,0,0)),
+    sceneSDF(pos + vec3(0,epsilon,0)) - sceneSDF(pos - vec3(0,epsilon,0)),
+    sceneSDF(pos + vec3(0,0,epsilon)) - sceneSDF(pos - vec3(0,0,epsilon))
+  ));
+}
+
+// Raymarcher steps a ray through the scene until it hits a surface or escapes.
+// Returns (brightness, partId). partId = -1 means background / star.
+vec2 marchRay(vec2 uv) {
+  float aspectRatio = resolution.x / resolution.y;
+  vec3 rayOrigin = vec3(0., 0., cameraDistance);
+  vec3 rayDir = normalize(vec3((uv * 2. - 1.) * vec2(aspectRatio, 1.), -2.5));
+  float dist = 0.5;
+
+  for(int step = 0; step < 80; step++){
+    float closest = sceneSDF(rayOrigin + rayDir * dist);
+    if(closest < 0.002){
+      // Hit — compute lighting
+      vec3 hitPos = rayOrigin + rayDir * dist;
+      vec3 normal = getSurfaceNormal(hitPos);
+      float partId = hitPart(hitPos);
+
+      vec3 keyLight = normalize(vec3(3.,  4.,  5.));
+      vec3 fillLight = normalize(vec3(-2., -1., 3.));
+      
+      float diffuse = max(dot(normal, keyLight), 0.) * 0.85 + max(dot(normal, fillLight), 0.) * 0.25;
+      float specular = pow(max(dot(reflect(-keyLight, normal), -rayDir), 0.), 48.) * 0.55;
+      float rim = pow(1. - max(dot(normal, -rayDir), 0.), 4.) * 0.3;
+      float brightness = clamp(diffuse + specular + rim + 0.08, 0., 1.);
+      
+      if(partId > 0.5) brightness *= 0.78; // rings slightly darker than planet
+      return vec2(brightness, partId);
+    }
+    if(dist > cameraDistance * 2.5) break; // ray escaped scene
+    dist += closest;
+  }
+
+  // Background made of sparse star field via random hash
+  vec2 starCell = floor(rayDir.xy * 90. + rayDir.z * 40.);
+  float starHash = hash(starCell);
+  return vec2(starHash > 0.977 ? (starHash - 0.977) / 0.023 * 0.55 : 0., -1.);
+}
+
+// Maps brightness + partId to a final RGB color based on the selected palette
+vec3 applyPalette(float brightness, float partId, float paletteIndex){
+  vec3 baseColor;
+
+  // 0: AMBER
+  if(paletteIndex < 0.5) {
+    if (partId < 0.5 && partId >= 0.) baseColor = vec3(1., .6, .05);
+    else baseColor = vec3(1., .42, .02);
+    return baseColor * brightness * 1.4;
+
+  // 1: PHOSPHOR
+  } else if(paletteIndex < 1.5) {
+    baseColor = vec3(.1, 1., .22);
+    return baseColor * brightness * 1.4;
+
+  // 2: CGA
+  } else if(paletteIndex < 2.5){
+    vec3 black = vec3(0.), cyan = vec3(0.,.7,.7), ltBlue = vec3(.8,.8,1.), white = vec3(1.);
+    
+    if (brightness < .33) return mix(black, cyan, brightness * 3.);
+    else if (brightness < .66) return mix(cyan, ltBlue, (brightness-.33)*3.);
+    else return mix(ltBlue, white, (brightness-.66)*3.);
+
+  // 3: GAMEBOY
+  } else if(paletteIndex < 3.5) {
+    
+    vec3 shades[4];
+    shades[0] = vec3(0.059, 0.220, 0.059);
+    shades[1] = vec3(0.188, 0.384, 0.188);
+    shades[2] = vec3(0.545, 0.675, 0.059);
+    shades[3] = vec3(0.608, 0.737, 0.059);
+    float indexF = clamp(brightness * 3.99, 0., 3.99);
+    int   indexI = int(indexF);
+    float blend = fract(indexF);
+    vec3 colorA, colorB;
+    
+    if (indexI == 0)
+    { 
+      colorA = shades[0]; colorB = shades[1]; 
+    }
+    else if (indexI == 1)
+    { 
+      colorA = shades[1]; colorB = shades[2]; 
+    }
+    else 
+    { 
+      colorA = shades[2]; colorB = shades[3]; 
+    }
+    
+    return mix(colorA, colorB, blend);
+
+  // 4: ZX SPECTRUM
+  } else if(paletteIndex < 4.5) {
+    vec3 tint;
+    
+    if(partId < 0.5 && partId >= 0.) tint = vec3(0.8, 0.0, 0.8);
+    else tint = vec3(0.0, 0.8, 0.8);
+    return tint * brightness * 1.3;
+
+  // 5: PC-98
+  } else if(paletteIndex < 5.5) {
+    vec3 shadow = vec3(0.0, 0.0, 0.18);
+    vec3 midTone = vec3(0.7, 0.0, 0.6);
+    vec3 highlight = vec3(1.0, 0.75, 1.0);
+    
+    if (brightness < 0.5) return mix(shadow, midTone, brightness * 2.);
+    else return mix(midTone, highlight, (brightness - 0.5) * 2.);
+
+  // 6: RADAR
+  } else if (paletteIndex < 6.5) {
+    vec3 dark = vec3(0.0, 0.0, 0.0);
+    vec3 midRed = vec3(0.6, 0.0, 0.0);
+    vec3 hotRed = vec3(1.0, 0.15, 0.0);
+    
+    if(brightness < 0.5) return mix(dark, midRed, brightness * 2.);
+    else return mix(midRed, hotRed, (brightness - 0.5) * 2.);
+
+  // 7: C64
+  } else {
+    vec3 navyBlue = vec3(0.067, 0.114, 0.455);
+    vec3 periwinkle = vec3(0.353, 0.408, 0.816);
+    vec3 paleBlue = vec3(0.686, 0.718, 1.0);
+    
+    if(brightness < 0.4) return mix(navyBlue, periwinkle, brightness / 0.4);
+    else return mix(periwinkle, paleBlue, (brightness - 0.4) / 0.6);
+  }
+}
+
+void main(){
+
+  vec2 cellSize = vec2(pixelSize) / resolution;
+  vec2 cellCoord = floor(vUv / cellSize);
+  vec2 cellLocalUv = fract(vUv / cellSize); // position within the cell (0-1)
+
+  vec2 rayResult = marchRay((cellCoord + 0.5) * cellSize);
+  float brightness = rayResult.x;
+  float partId = rayResult.y;
+
+  // Draw each pixel as a circle scaled by brightness
+  float distToCenter = length(cellLocalUv - vec2(0.5));
+  float dotRadius = brightness * 0.47 + 0.01;
+  float dotMask = smoothstep(dotRadius + 0.04, dotRadius - 0.04, distToCenter);
+  float glowHalo = smoothstep(dotRadius + 0.2, dotRadius, distToCenter) * 0.18 * (1. - dotMask);
+
+  vec3 color = applyPalette(brightness, partId, palette) * (dotMask + glowHalo);
+
+  color *= 1. - 0.45 * pow(sin(vUv.y * resolution.y * 3.14159), 2.);
+
+  // Vignette
+  vec2 vignetteUv = vUv * 2. - 1.;
+  color *= pow(clamp(1. - dot(vignetteUv * .55, vignetteUv * .55), 0., 1.), 1.5);
+
+  gl_FragColor = vec4(clamp(color, 0., 1.), 1.);
+}
+`});
+
+// Shader created wth fullscreen quad
+const scene = new THREE.Scene();
+scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), shaderMaterial));
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+// Pixel size slider
+document.getElementById('ps').oninput = function() {
+  shaderUniforms.pixelSize.value = +this.value;
+  document.getElementById('psv').textContent = this.value;
+};
+
+// Palette dropdown
+document.getElementById('pal').onchange = function() {
+  shaderUniforms.palette.value = +this.value;
+};
+
+const resizeObserver = new ResizeObserver(() => {
+  const { width: newWidth, height: newHeight } = getCanvasSize();
+  canvas.width = newWidth;
+  canvas.height = newHeight;
+  renderer.setSize(newWidth, newHeight, false);
+  shaderUniforms.resolution.value.set(newWidth, newHeight);
+});
+resizeObserver.observe(canvas);
+
+let elapsedTime = 0;
+(function renderLoop(){
+
+  requestAnimationFrame(renderLoop);
+  elapsedTime += 0.016;
+  shaderUniforms.time.value          = elapsedTime;
+  shaderUniforms.rotationX.value     = rotationX;
+  shaderUniforms.rotationY.value     = rotationY;
+  shaderUniforms.cameraDistance.value = cameraDistance;
+  renderer.render(scene, orthoCam);
+
+})();
+</script>
+</body>
+</html>
