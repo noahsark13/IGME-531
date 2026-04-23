@@ -11,7 +11,7 @@
     width: 100%; height: 100%;
     background: #000;
     overflow: hidden;
-    font-family: 'Courier New', monospace;
+    font-family: 'Helvetica';
   }
 
   #wrap {
@@ -61,7 +61,7 @@
     background: #000;
     color: #fff;
     border: 1px solid rgba(255,255,255,0.35);
-    font-family: 'Courier New', monospace;
+    font-family: 'Helvetica';
     font-size: 10px;
     padding: 2px 4px;
     cursor: pointer;
@@ -245,7 +245,7 @@ vec2 marchRay(vec2 uv) {
       float rim = pow(1. - max(dot(normal, -rayDir), 0.), 4.) * 0.3;
       float brightness = clamp(diffuse + specular + rim + 0.08, 0., 1.);
       
-      if (partId > 0.5) brightness *= 0.78; // rings slightly darker than planet
+      if (partId > 0.5) brightness *= 0.78;
       return vec2(brightness, partId);
     }
 
@@ -284,7 +284,6 @@ vec3 applyPalette(float brightness, float partId, float paletteIndex){
 
   // 3: GAMEBOY
   } else if(paletteIndex < 3.5) {
-    
     vec3 shades[4];
     shades[0] = vec3(0.059, 0.220, 0.059);
     shades[1] = vec3(0.188, 0.384, 0.188);
