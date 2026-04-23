@@ -130,7 +130,7 @@ window.addEventListener('mousemove', e => {
   if (!isDragging) return;
   rotationY += (e.clientX - prevMouseX) * 0.01;
   rotationX += (e.clientY - prevMouseY) * 0.01;
-  rotationX = Math.max(-1.4, Math.min(1.4, rotationX)); // clamp to avoid flipping
+  rotationX = Math.max(-1.4, Math.min(1.4, rotationX));
   prevMouseX = e.clientX;
   prevMouseY = e.clientY;
 });
@@ -228,10 +228,11 @@ vec2 marchRay(vec2 uv) {
   vec3 rayDir = normalize(vec3((uv * 2. - 1.) * vec2(aspectRatio, 1.), -2.5));
   float dist = 0.5;
 
-  for(int step = 0; step < 80; step++){
+  for(int step = 0; step < 80; step++) {
     float closest = sceneSDF(rayOrigin + rayDir * dist);
-    if(closest < 0.002){
-      // Hit — compute lighting
+
+    if (closest < 0.002) {
+      // Compute lighting
       vec3 hitPos = rayOrigin + rayDir * dist;
       vec3 normal = getSurfaceNormal(hitPos);
       float partId = hitPart(hitPos);
@@ -244,9 +245,10 @@ vec2 marchRay(vec2 uv) {
       float rim = pow(1. - max(dot(normal, -rayDir), 0.), 4.) * 0.3;
       float brightness = clamp(diffuse + specular + rim + 0.08, 0., 1.);
       
-      if(partId > 0.5) brightness *= 0.78; // rings slightly darker than planet
+      if (partId > 0.5) brightness *= 0.78; // rings slightly darker than planet
       return vec2(brightness, partId);
     }
+
     if(dist > cameraDistance * 2.5) break; // ray escaped scene
     dist += closest;
   }
@@ -262,7 +264,7 @@ vec3 applyPalette(float brightness, float partId, float paletteIndex){
   vec3 baseColor;
 
   // 0: AMBER
-  if(paletteIndex < 0.5) {
+  if (paletteIndex < 0.5) {
     if (partId < 0.5 && partId >= 0.) baseColor = vec3(1., .6, .05);
     else baseColor = vec3(1., .42, .02);
     return baseColor * brightness * 1.4;
